@@ -1,0 +1,80 @@
+{
+  "sftp://192.168.40.133:22@root": {
+    "root": {
+      "cuiyiming": {
+        "FeatureExtract": {
+          ".DS_Store": {
+            "type": "-",
+            "size": 6148,
+            "lmtime": 0,
+            "modified": false
+          },
+          ".gitignore": {
+            "type": "-",
+            "size": 40,
+            "lmtime": 0,
+            "modified": false
+          },
+          "CMakeLists.txt": {
+            "type": "-",
+            "size": 551,
+            "lmtime": 1575560079518,
+            "modified": false
+          },
+          "entry": {
+            "CMakeLists.txt": {
+              "type": "-",
+              "size": 208,
+              "lmtime": 1575560105179,
+              "modified": false
+            },
+            "include": {
+              "base_utils.h": {
+                "type": "-",
+                "size": 1158,
+                "lmtime": 1575606465908,
+                "modified": false
+              },
+              "ssl_utils.h": {
+                "type": "-",
+                "size": 952,
+                "lmtime": 1575626701193,
+                "modified": false
+              }
+            },
+            "src": {
+              "ssl_utils.cpp": {
+                "type": "-",
+                "size": 13870,
+                "lmtime": 1575627774070,
+                "modified": false
+              },
+              "tcp_entry.cpp": {
+                "type": "-",
+                "size": 11448,
+                "lmtime": 1575631855171,
+                "modified": false
+              }
+            }
+          },
+          "pcap": {},
+          "vendor": {
+            "CMakeLists.txt": {
+              "type": "-",
+              "size": 2740,
+              "lmtime": 1575559328943,
+              "modified": false
+            },
+            "cJSON-1.7.7.tar.gz": {
+              "type": "-",
+              "size": 345681,
+              "lmtime": 1575559219369,
+              "modified": false
+            }
+          }
+        }
+      }
+    }
+  },
+  "$version": 1
+}

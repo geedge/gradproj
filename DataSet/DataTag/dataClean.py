@@ -88,6 +88,7 @@ def handleUnknownApp(host, stream, ua):
     print(stream + ",  " + host + ",  " + ua)
 
 def main():
+    stm2app_dict = dict()
     with open(outputFile, "w+") as f1:
         for filename in filenameList:
             with open(filename) as f:
@@ -107,12 +108,14 @@ def main():
                         ua = ua.strip()
                         appName = getAppName(ua)
                         if appName != None:
-                                f1.write(stream + ":    " + appName + "\n")
+                                stm2app_dict[stream] = appName
                         else:
                             handleUnknownApp(host, stream, ua)
                     except:
                         print("log: " + log)
                         traceback.print_exc()
+        for stream, app in stm2app_dict.items():
+            f1.write(stream + ":    " + app + "\n")
 
 if __name__ == '__main__':
     main()

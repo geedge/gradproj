@@ -4,8 +4,8 @@ import traceback
 
 filenameList = [
     #"http.log.test",
-    "./log/http.log.2019-12-04.1",
-    "./log/http2.log.2019-12-04.1",
+    "./log/2019-12-06/http.log.2019-12-06-0",
+    "./log/2019-12-06/http2.log.2019-12-06-0",
 ]
 
 outputFile = "./result.txt"
@@ -15,7 +15,7 @@ appDict = {
     "douyin" : ["Aweme", "ttplayer"],
     "taobao" : ["%E6%89%8B%E6%9C%BA%E6%B7%98%E5%AE%9D", "TBIOS", "MTOPSDK", "AliApp(TB"],
     "kuaishou" : ["kwai", "%E5%BF%AB%E6%89%8B"],
-    "weibo" : ["weibo"],
+    "weibo" : ["weibo", "微博", "afma-sdk-onShow-v"],
     "toutiao" : ["News", "今日头条"],
     "iqiyi" : ["QIYIVideo", "iQiYi", "HCDNClient_IOS"],
     "tencentVideo" : ["live4iphone%20rel", "VBBaseCore"],
@@ -27,7 +27,7 @@ appDict = {
     "qqMusic" : ["QQ%E9%9F%B3%E4%B9%90"],
     "didi" : ["OneTravel", "Omega", "FusionKit"],
     "lianjia" : ["LianJia", "HomeLink"],
-    "hupu" : ["hupu", "prokanqiu"],
+    "hupu" : ["hupu", "prokanqiu", "虎扑"],
     "gaode" : ["AMap", "%E9%AB%98%E5%BE%B7%E5%9C%B0%E5%9B%BE"],
     "neteaseNews" : ["NewsApp", "%E7%BD%91%E6%98%93%E6%96%B0%E9%97%BB"],
     "chrome" : ["CriOS"],
@@ -65,7 +65,7 @@ filterHostList = {
     "googleapis.com",
     "baidu.com",
     "bdstatic.com",
-    "app-measurement.com"
+    "app-measurement.com",
 }
 
 filterUaList = {

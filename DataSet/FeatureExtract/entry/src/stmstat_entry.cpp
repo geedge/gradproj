@@ -4,7 +4,7 @@
 #include "MESA/stream_inc/stream_base.h"
 #include "MESA/stream_inc/stream_rawpkt.h"
 #include "cjson/cJSON.h"
-#define STREAM_PACKET_COUNT_MAX 200
+#define STREAM_PACKET_COUNT_MAX 10000
 
 /*
 {
@@ -42,6 +42,7 @@ int g_stream_count = 0;
 int g_stream_succ_count = 0;
 int g_stream_fail_count = 0;
 int g_log_succ_count = 0;
+int g_exceed_max_pkts_count = 0;
 
 struct pkt_stat_info{
     struct timeval pkt_time;
@@ -107,6 +108,8 @@ int ipv4_header_parse(const void *a_packet, struct pkt_parsed_info* pktinfo){
 
 int packet_stat(struct streaminfo *stream, struct pme_info *pmeinfo, struct pkt_parsed_info* pktinfo){
     if(pmeinfo->total_pkts == STREAM_PACKET_COUNT_MAX){
+        printf("packet nums > STREAM_PACKET_COUNT_MAX\n");
+        g_exceed_max_pkts_count++;
         return -1;
     }
     pmeinfo->pkt_info_list[pmeinfo->total_pkts].bytes = pktinfo->data_len;
@@ -258,9 +261,10 @@ void pme_info_destroy(struct pme_info *pmeinfo){
 }
 
 extern "C" char stmstat_entry(struct streaminfo *stream, void** pme, int thread_seq, const void* a_packet){
-    if(g_count % 100 == 5){
+    if(g_count % 10 == 5){
         printf("handle %d packets\n", g_count);
-        printf("stream_count: %d\nsucc_count: %d\nfail_count: %d\ng_log_succ_count: %d\n", g_stream_count, g_stream_succ_count, g_stream_fail_count, g_log_succ_count);
+        printf("stream_count: %d\nsucc_count: %d\nfail_count: %d\ng_log_succ_count: %d, g_exceed_max_pkts_count: %d\n", 
+            g_stream_count, g_stream_succ_count, g_stream_fail_count, g_log_succ_count, g_exceed_max_pkts_count);
     }
     g_count++;
 	char ret;

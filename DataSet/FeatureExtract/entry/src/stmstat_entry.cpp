@@ -44,6 +44,42 @@ int g_stream_fail_count = 0;
 int g_log_succ_count = 0;
 int g_exceed_max_pkts_count = 0;
 
+struct tls_message_type{
+    int message_type;
+    int content_type;
+    int handshake_type;
+    const char *name;
+};
+
+struct tls_message_type g_tls_types[] = {
+    {0, 22, 0, "hello_request_RESERVED"},
+    {1, 22, 1, "client_hello"},
+    {2, 22, 2, "server_hello"},
+    {3, 22, 3, "hello_verify_request_RESERVED"},
+    {4, 22, 4, "new_session_ticket"},
+    {5, 22, 5, "end_of_early_data"},
+    {6, 22, 6, "hello_retry_request_RESERVED"},
+    {7, 22, 8, "encrypted_extensions"},
+    {8, 22, 11, "certificate"},
+    {9, 22, 12, "server_key_exchange_RESERVED"},
+    {10, 22, 13, "certificate_request"},
+    {11, 22, 14, "server_hello_done_RESERVED"},
+    {12, 22, 15, "certificate_verify"},
+    {13, 22, 16, "client_key_exchange_RESERVED"},
+    {14, 22, 20, "finished"},
+    {15, 22, 21, "certificate_url_RESERVED"},
+    {16, 22, 22, "certificate_status_RESERVED"},
+    {17, 22, 23, "supplemental_data_RESERVED"},
+    {18, 22, 24, "key_update"},
+    {19, 22, 25, "compressed_certificate"},
+    {20, 22, 254, "message_hash"},
+    {21, 20, 0, "change_cipher_spec"},
+    {22, 21, 0, "alert"},
+    {23, 23, 0, "application_data"},
+    {24, 24, 0, "heartbeat"},
+    {25, 25, 0, "tls12_cid"},
+};
+
 struct pkt_stat_info{
     struct timeval pkt_time;
     int bytes;
@@ -65,6 +101,12 @@ struct pkt_parsed_info{
 	uint16_t data_len;
 };
 
+struct tls_message_info{
+    int dir;
+    int type;
+    int length;
+};
+
 struct pme_info{
     int _errno;
     char sip[INET_ADDRSTRLEN];
@@ -83,6 +125,8 @@ struct pme_info{
     int last_s2c_pkt_index;
     struct pkt_stat_info pkt_info_list[STREAM_PACKET_COUNT_MAX];
     struct ssl_chello chello;
+    int tls_message_count;
+    struct tls_message_info tls_info_list[STREAM_PACKET_COUNT_MAX];
 };
 
 int ipv4_header_parse(const void *a_packet, struct pkt_parsed_info* pktinfo){
@@ -108,7 +152,7 @@ int ipv4_header_parse(const void *a_packet, struct pkt_parsed_info* pktinfo){
 
 int packet_stat(struct streaminfo *stream, struct pme_info *pmeinfo, struct pkt_parsed_info* pktinfo){
     if(pmeinfo->total_pkts == STREAM_PACKET_COUNT_MAX){
-        printf("packet nums > STREAM_PACKET_COUNT_MAX\n");
+        LOG_INFO(g_logger, "packet nums > STREAM_PACKET_COUNT_MAX(%d)\n", STREAM_PACKET_COUNT_MAX);
         g_exceed_max_pkts_count++;
         return -1;
     }
@@ -143,9 +187,56 @@ int chello_packet_parse(struct pme_info *pmeinfo, struct pkt_parsed_info *pktinf
     int len = pktinfo->data_len;
     ssl_chello_parse(&(pmeinfo->chello), (const unsigned char*)buff, len, &chello_status);
 	if(chello_status != CHELLO_PARSE_SUCCESS){
-		printf("Error: chello parse failed\n");
+        LOG_ERROR(g_logger, "Error: chello parse failed\n");
         return -1;
 	}
+    return 0;
+}
+
+int get_tls_message_type(int content_type, int handshake_type){
+    int type_count = sizeof(g_tls_types) / sizeof(struct tls_message_type);
+    for(int i = 0; i < type_count; i++){
+        if(g_tls_types[i].content_type == content_type && g_tls_types[i].handshake_type == handshake_type){
+            return i;
+        }
+    }
+    return -1;
+}
+
+int tls_header_parse(struct streaminfo *stream, struct pme_info *pmeinfo, struct pkt_parsed_info *pktinfo){
+    unsigned char *buff = (unsigned char*)pktinfo->data;
+    int len = pktinfo->data_len;
+    int i = 0;
+    while(i < len){
+        if(i + 4 >= len){
+            return -1;
+        }
+        int content_type = buff[i];
+        int handshake_type = 0;
+        if(buff[i] == 0x16){
+            if(i + 5 >= len){
+                return -1;
+            }
+            handshake_type = buff[i + 5];
+        }
+        int message_type = get_tls_message_type(content_type, handshake_type);
+        if(message_type < 0){
+            return -1;
+        }
+        int version = (uint16_t)(buff[i + 1] << 8) + (uint8_t)buff[i + 2];
+        if(version < 0x0300 || version > 0x0304){
+            return -1;
+        }
+        int len = (uint16_t)(buff[i + 3] << 8) + (uint8_t)buff[i + 4];
+        if(len < 0){
+            printf("%02hhx %02hhx\n", buff[i + 3], buff[i + 4]);
+        }
+        pmeinfo->tls_info_list[pmeinfo->tls_message_count].dir = stream->curdir;
+        pmeinfo->tls_info_list[pmeinfo->tls_message_count].type = message_type;
+        pmeinfo->tls_info_list[pmeinfo->tls_message_count].length = len;
+        pmeinfo->tls_message_count++;
+        i += (5 + len);
+    }
     return 0;
 }
 
@@ -168,6 +259,7 @@ char pending_opstate(struct streaminfo *stream, struct pme_info *pmeinfo, struct
     pmeinfo->last_c2s_pkt_index = -1;
     pmeinfo->last_s2c_pkt_index = -1;
     get_rawpkt_opt_from_streaminfo(stream, RAW_PKT_GET_TIMESTAMP, &(pmeinfo->start_time));
+    get_rawpkt_opt_from_streaminfo(stream, RAW_PKT_GET_TIMESTAMP, &(pmeinfo->end_time));
     struct stream_tuple4_v4 *tuple4 = stream->addr.tuple4_v4;
     inet_ntop(AF_INET, &(tuple4->saddr), pmeinfo->sip, INET_ADDRSTRLEN);
     inet_ntop(AF_INET, &(tuple4->daddr), pmeinfo->dip, INET_ADDRSTRLEN);
@@ -181,18 +273,33 @@ char pending_opstate(struct streaminfo *stream, struct pme_info *pmeinfo, struct
         pmeinfo->_errno = -1;
         return APP_STATE_FAWPKT | APP_STATE_DROPME;
     }
+    tls_header_parse(stream, pmeinfo, pktinfo);
     packet_stat(stream, pmeinfo, pktinfo);
     return APP_STATE_FAWPKT | APP_STATE_GIVEME;
 }
 
 char data_opstate(struct streaminfo *stream, struct pme_info *pmeinfo, struct pkt_parsed_info *pktinfo){
+    get_rawpkt_opt_from_streaminfo(stream, RAW_PKT_GET_TIMESTAMP, &(pmeinfo->end_time));
     if(packet_need_filter(pktinfo) == 0){
+        tls_header_parse(stream, pmeinfo, pktinfo);
         int ret = packet_stat(stream, pmeinfo, pktinfo);
         if(ret == -1){
             return APP_STATE_FAWPKT | APP_STATE_DROPME;
         }
     }
     return APP_STATE_FAWPKT | APP_STATE_GIVEME;
+}
+
+void time_tostring(struct timeval tv, char *buf, int buflen){
+    char tmbuf[64];
+    time_t nowtime;
+    struct tm *nowtm;
+    nowtime = tv.tv_sec;
+    //printf("nowtime = %lld\n", nowtime);
+    nowtm = localtime(&nowtime);
+    strftime(tmbuf, sizeof(tmbuf), "%Y-%m-%d %H:%M:%S", nowtm);
+    snprintf(buf, buflen, "%s.%06ld", tmbuf, tv.tv_usec);
+    return;
 }
 
 void output_result(struct pme_info *pmeinfo){
@@ -207,6 +314,12 @@ void output_result(struct pme_info *pmeinfo){
     cJSON_AddNumberToObject(log_obj, "c2s_pkts", pmeinfo->c2s_pkts);
     cJSON_AddNumberToObject(log_obj, "s2c_pkts", pmeinfo->s2c_pkts);
     cJSON_AddNumberToObject(log_obj, "total_pkts", pmeinfo->total_pkts);
+    char time_str[64] = {};
+    time_tostring(pmeinfo->start_time, time_str, sizeof(time_str));
+    cJSON_AddStringToObject(log_obj, "start_time", time_str);
+    time_tostring(pmeinfo->end_time, time_str, sizeof(time_str));
+    cJSON_AddStringToObject(log_obj, "end_time", time_str);
+    pmeinfo->duration = (pmeinfo->end_time.tv_sec - pmeinfo->start_time.tv_sec) * 1000 + (pmeinfo->end_time.tv_usec - pmeinfo->start_time.tv_usec) / 1000;
     cJSON_AddNumberToObject(log_obj, "duration", pmeinfo->duration);
     cJSON *pkt_info_list = cJSON_CreateArray();
     for(int i = 0; i < pmeinfo->total_pkts; i++){
@@ -214,6 +327,8 @@ void output_result(struct pme_info *pmeinfo){
         cJSON_AddNumberToObject(pkt_info, "bytes", pmeinfo->pkt_info_list[i].bytes);
         cJSON_AddNumberToObject(pkt_info, "dir", pmeinfo->pkt_info_list[i].dir);
         cJSON_AddNumberToObject(pkt_info, "interval", pmeinfo->pkt_info_list[i].interval);
+        time_tostring(pmeinfo->pkt_info_list[i].pkt_time, time_str, sizeof(time_str));
+        cJSON_AddStringToObject(pkt_info, "pkt_time", time_str);
         cJSON_AddItemToArray(pkt_info_list, pkt_info);
     }
     cJSON_AddItemToObject(log_obj, "packets", pkt_info_list);
@@ -234,6 +349,17 @@ void output_result(struct pme_info *pmeinfo){
     }
     cJSON_AddItemToObject(tls_info, "extensions_list", extensions_list);
     cJSON_AddItemToObject(log_obj, "tls", tls_info);
+
+    cJSON *tls_message_list = cJSON_CreateArray();
+    cJSON_AddItemToObject(tls_info, "tls_message_list", tls_message_list);
+    for(int i = 0; i < pmeinfo->tls_message_count; i++){
+        cJSON *tls_message = cJSON_CreateObject();
+        cJSON_AddNumberToObject(tls_message, "dir", pmeinfo->tls_info_list[i].dir);
+        cJSON_AddNumberToObject(tls_message, "type", pmeinfo->tls_info_list[i].type);
+        cJSON_AddNumberToObject(tls_message, "length", pmeinfo->tls_info_list[i].length);
+        cJSON_AddItemToArray(tls_message_list, tls_message);
+    }
+
     char *log_msg = cJSON_PrintUnformatted(log_obj);
     //printf("%s\n\n", log_msg);
     LOG_INFO(g_logger, log_msg);
@@ -246,12 +372,12 @@ void output_result(struct pme_info *pmeinfo){
 
 char close_opstate(struct streaminfo *stream, struct pme_info *pmeinfo, struct pkt_parsed_info *pktinfo, const void *a_packet){
     if(a_packet != NULL){
+        get_rawpkt_opt_from_streaminfo(stream, RAW_PKT_GET_TIMESTAMP, &(pmeinfo->end_time));
         if(packet_need_filter(pktinfo) == 0){
+            tls_header_parse(stream, pmeinfo, pktinfo);
             packet_stat(stream, pmeinfo, pktinfo);
         }
     }
-    get_rawpkt_opt_from_streaminfo(stream, RAW_PKT_GET_TIMESTAMP, &(pmeinfo->end_time));
-    pmeinfo->duration = (pmeinfo->end_time.tv_sec - pmeinfo->start_time.tv_sec) * 1000 + (pmeinfo->end_time.tv_usec - pmeinfo->start_time.tv_usec) / 1000;
     return APP_STATE_FAWPKT | APP_STATE_DROPME;
 }
 
@@ -262,8 +388,8 @@ void pme_info_destroy(struct pme_info *pmeinfo){
 
 extern "C" char stmstat_entry(struct streaminfo *stream, void** pme, int thread_seq, const void* a_packet){
     if(g_count % 10 == 5){
-        printf("handle %d packets\n", g_count);
-        printf("stream_count: %d\nsucc_count: %d\nfail_count: %d\ng_log_succ_count: %d, g_exceed_max_pkts_count: %d\n", 
+        LOG_DEBUG(g_logger, "handle %d packets\n", g_count);
+        LOG_DEBUG(g_logger, "stream_count: %d\nsucc_count: %d\nfail_count: %d\ng_log_succ_count: %d, g_exceed_max_pkts_count: %d\n", 
             g_stream_count, g_stream_succ_count, g_stream_fail_count, g_log_succ_count, g_exceed_max_pkts_count);
     }
     g_count++;

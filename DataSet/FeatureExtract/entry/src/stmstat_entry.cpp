@@ -78,6 +78,7 @@ struct tls_message_type g_tls_types[] = {
     {23, 23, 0, "application_data"},
     {24, 24, 0, "heartbeat"},
     {25, 25, 0, "tls12_cid"},
+    {26, 22, -1, "handshake_unknown"},
 };
 
 struct pkt_stat_info{
@@ -127,6 +128,13 @@ struct pme_info{
     struct ssl_chello chello;
     int tls_message_count;
     struct tls_message_info tls_info_list[STREAM_PACKET_COUNT_MAX];
+    unsigned char c2s_tls_payload[1500];
+    int c2s_tls_last_segment_len;
+    int c2s_tls_current_segment_offset;
+    unsigned char s2c_tls_payload[1500];
+    int s2c_tls_last_segment_len;
+    int s2c_tls_current_segment_offset;
+    int has_fin_rst;
 };
 
 int ipv4_header_parse(const void *a_packet, struct pkt_parsed_info* pktinfo){
@@ -200,42 +208,102 @@ int get_tls_message_type(int content_type, int handshake_type){
             return i;
         }
     }
+    if(content_type == 22){
+        return type_count - 1;
+    }
     return -1;
 }
 
 int tls_header_parse(struct streaminfo *stream, struct pme_info *pmeinfo, struct pkt_parsed_info *pktinfo){
-    unsigned char *buff = (unsigned char*)pktinfo->data;
-    int len = pktinfo->data_len;
+    int curdir = stream->curdir;
+    unsigned char *buff = NULL;
+    int len = 0;
+    if(curdir == 1){
+        if(pmeinfo->c2s_tls_current_segment_offset >= pktinfo->data_len){
+            pmeinfo->c2s_tls_current_segment_offset -= pktinfo->data_len;
+            return 0;
+        }
+        memcpy((char*)pmeinfo->c2s_tls_payload + pmeinfo->c2s_tls_last_segment_len, 
+            pktinfo->data + pmeinfo->c2s_tls_current_segment_offset, pktinfo->data_len - pmeinfo->c2s_tls_current_segment_offset);
+        buff = pmeinfo->c2s_tls_payload;
+        len = pktinfo->data_len + pmeinfo->c2s_tls_last_segment_len - pmeinfo->c2s_tls_current_segment_offset;
+    }
+    if(curdir == 2){
+        if(pmeinfo->s2c_tls_current_segment_offset >= pktinfo->data_len){
+            pmeinfo->s2c_tls_current_segment_offset -= pktinfo->data_len;
+            return 0;
+        }
+        memcpy((char*)pmeinfo->s2c_tls_payload + pmeinfo->s2c_tls_last_segment_len, 
+            pktinfo->data + pmeinfo->s2c_tls_current_segment_offset, pktinfo->data_len - pmeinfo->s2c_tls_current_segment_offset);
+        buff = pmeinfo->s2c_tls_payload;
+        len = pktinfo->data_len + pmeinfo->s2c_tls_last_segment_len - pmeinfo->s2c_tls_current_segment_offset;
+    }
     int i = 0;
+    int flag = 0;
     while(i < len){
         if(i + 4 >= len){
-            return -1;
+            flag = 1;
+            break;
         }
         int content_type = buff[i];
         int handshake_type = 0;
         if(buff[i] == 0x16){
             if(i + 5 >= len){
-                return -1;
+                flag = 1;
+                break;
             }
             handshake_type = buff[i + 5];
         }
         int message_type = get_tls_message_type(content_type, handshake_type);
         if(message_type < 0){
-            return -1;
+            LOG_ERROR(g_logger, "message_type unknown, value = %02x %02x %02x %02x %02x\n", buff[i], buff[i + 1], buff[i + 2], buff[i + 3], buff[i + 4]);
+            flag = 2;
+            break;
         }
         int version = (uint16_t)(buff[i + 1] << 8) + (uint8_t)buff[i + 2];
         if(version < 0x0300 || version > 0x0304){
-            return -1;
+            LOG_ERROR(g_logger, "version unknown, value = %02x %02x\n", buff[i + 1], buff[i + 2]);
+            flag = 2;
+            break;
         }
         int len = (uint16_t)(buff[i + 3] << 8) + (uint8_t)buff[i + 4];
-        if(len < 0){
-            printf("%02hhx %02hhx\n", buff[i + 3], buff[i + 4]);
-        }
         pmeinfo->tls_info_list[pmeinfo->tls_message_count].dir = stream->curdir;
         pmeinfo->tls_info_list[pmeinfo->tls_message_count].type = message_type;
         pmeinfo->tls_info_list[pmeinfo->tls_message_count].length = len;
         pmeinfo->tls_message_count++;
         i += (5 + len);
+    }
+    if(flag == 1){
+        if(curdir == 1){
+            memcpy((char*)pmeinfo->c2s_tls_payload, pktinfo->data, len - i);
+            pmeinfo->c2s_tls_last_segment_len = len - i;
+            pmeinfo->c2s_tls_current_segment_offset = 0;
+        }
+        if(curdir == 2){
+            memcpy((char*)pmeinfo->s2c_tls_payload, pktinfo->data, len - i);
+            pmeinfo->s2c_tls_last_segment_len = len - i;
+            pmeinfo->s2c_tls_current_segment_offset = 0;
+        }
+        return -1;
+    }
+    if(flag == 2){
+        if(curdir == 1){
+            pmeinfo->c2s_tls_last_segment_len = 0;
+            pmeinfo->c2s_tls_current_segment_offset = 0;
+        }
+        if(curdir == 2){
+            pmeinfo->s2c_tls_last_segment_len = 0;
+            pmeinfo->s2c_tls_current_segment_offset = 0;
+        }
+        return -2;
+    }
+    if(curdir == 1){
+        pmeinfo->c2s_tls_last_segment_len = 0;
+        pmeinfo->c2s_tls_current_segment_offset = i - len;
+    }
+    if(curdir == 2){
+        pmeinfo->s2c_tls_last_segment_len = 0;
+        pmeinfo->s2c_tls_current_segment_offset = i - len;
     }
     return 0;
 }
@@ -256,6 +324,10 @@ int packet_need_filter(struct pkt_parsed_info *pktinfo){
 }
 
 char pending_opstate(struct streaminfo *stream, struct pme_info *pmeinfo, struct pkt_parsed_info *pktinfo){
+    struct tcphdr *_tcphdr = pktinfo->tcphdr;
+    if(_tcphdr->fin || _tcphdr->rst){
+        pmeinfo->has_fin_rst = 1;
+    }
     pmeinfo->last_c2s_pkt_index = -1;
     pmeinfo->last_s2c_pkt_index = -1;
     get_rawpkt_opt_from_streaminfo(stream, RAW_PKT_GET_TIMESTAMP, &(pmeinfo->start_time));
@@ -280,6 +352,10 @@ char pending_opstate(struct streaminfo *stream, struct pme_info *pmeinfo, struct
 
 char data_opstate(struct streaminfo *stream, struct pme_info *pmeinfo, struct pkt_parsed_info *pktinfo){
     get_rawpkt_opt_from_streaminfo(stream, RAW_PKT_GET_TIMESTAMP, &(pmeinfo->end_time));
+    struct tcphdr *_tcphdr = pktinfo->tcphdr;
+    if(_tcphdr->fin || _tcphdr->rst){
+        pmeinfo->has_fin_rst = 1;
+    }
     if(packet_need_filter(pktinfo) == 0){
         tls_header_parse(stream, pmeinfo, pktinfo);
         int ret = packet_stat(stream, pmeinfo, pktinfo);
@@ -303,6 +379,9 @@ void time_tostring(struct timeval tv, char *buf, int buflen){
 }
 
 void output_result(struct pme_info *pmeinfo){
+    if(pmeinfo->has_fin_rst == 0){
+        return;
+    }
     cJSON *log_obj = cJSON_CreateObject();
     cJSON_AddStringToObject(log_obj, "sip", pmeinfo->sip);
     cJSON_AddNumberToObject(log_obj, "sport", pmeinfo->sport);
@@ -373,6 +452,10 @@ void output_result(struct pme_info *pmeinfo){
 char close_opstate(struct streaminfo *stream, struct pme_info *pmeinfo, struct pkt_parsed_info *pktinfo, const void *a_packet){
     if(a_packet != NULL){
         get_rawpkt_opt_from_streaminfo(stream, RAW_PKT_GET_TIMESTAMP, &(pmeinfo->end_time));
+        struct tcphdr *_tcphdr = pktinfo->tcphdr;
+        if(_tcphdr->fin || _tcphdr->rst){
+            pmeinfo->has_fin_rst = 1;
+        }
         if(packet_need_filter(pktinfo) == 0){
             tls_header_parse(stream, pmeinfo, pktinfo);
             packet_stat(stream, pmeinfo, pktinfo);
@@ -438,7 +521,7 @@ extern "C" int stmstat_init(){
     char *log_path = (char*)"./stream_stat.log";
     int log_level = 10;
     g_logger = MESA_create_runtime_log_handle(log_path, log_level);
-    g_fp = fopen("./stream_stat.txt", "w+");
+    g_fp = fopen("./stream_stat.txt", "a+");
     return 0;
 }
 

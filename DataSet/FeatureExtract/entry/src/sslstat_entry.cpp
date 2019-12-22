@@ -122,7 +122,7 @@ extern "C" unsigned char sslstat_entry(stSessionInfo *session_info, void **param
 
 
 extern "C" int sslstat_init(){
-    g_fp = fopen("./ssl_stat.txt", "w+");
+    g_fp = fopen("./ssl_stat.txt", "a+");
     return 0;
 }
 

@@ -4,11 +4,15 @@ import traceback
 
 filenameList = [
     #"http.log.test",
-    "./log/2019-12-06/http.log.2019-12-06-0",
-    "./log/2019-12-04/http2.log.2019-12-06-0",
+    "./log/2019-12-20_21/http.log.2019-12-20",
+    "./log/2019-12-20_21/http2.log.2019-12-20",
+    "./log/2019-12-20_21/http.log.2019-12-21",
+    "./log/2019-12-20_21/http2.log.2019-12-21",
 ]
 
 outputFile = "./result.txt"
+
+'''
 appDict = {
     "wechat" : ["wechat", "MicroMessenger Client", "MicroMessenger"],
     "qq" : ["qq", "TencentMidasConnect"],
@@ -34,7 +38,15 @@ appDict = {
     "safari" : ["Version/12.1.2", "MobileSafari"],
     "firefox" : ["FxiOS"],
 }
+'''
 
+appDict = {
+    "douyin" : ["Aweme", "ttplayer"],
+    "weibo" : ["weibo", "微博", "afma-sdk-onShow-v", "SensorsAnalytics"],
+    "toutiao" : ["News", "今日头条"],
+    "hupu" : ["hupu", "prokanqiu", "虎扑", "AVMDL"],
+    "zhihu": ["osee2unifiedRelease",]
+}
 
 def getAppName(ua):
     for name, ids  in appDict.items():
@@ -74,6 +86,7 @@ filterUaList = {
     "swcd",
     "null",
     "SafariSafeBrowsing",
+    "CriOS"
 }
 
 def handleUnknownApp(host, stream, ua):
@@ -91,16 +104,19 @@ def main():
     stm2app_dict = dict()
     with open(outputFile, "w+") as f1:
         for filename in filenameList:
-            with open(filename) as f:
+            with open(filename, errors='ignore') as f:
                 logs = f.readlines()
                 for log in logs:
                     try:
                         li = log.split(',')
                         stream = li[3]
                         host = li[4]
-                        if(stream.split(' ')[4] != '443'):
+                        try:
+                            if(stream.split(' ')[4] != '443'):
+                                continue
+                            ua = ""
+                        except:
                             continue
-                        ua = ""
                         for index in range(5, len(li), 1):
                             ua += li[index]
                         host = host.strip()
@@ -108,14 +124,22 @@ def main():
                         ua = ua.strip()
                         appName = getAppName(ua)
                         if appName != None:
-                                stm2app_dict[stream] = appName
+                                if stream not in stm2app_dict.keys():
+                                    stm2app_dict[stream] = set()
+                                stm2app_dict[stream].add(appName)
                         else:
                             handleUnknownApp(host, stream, ua)
                     except:
                         print("log: " + log)
                         traceback.print_exc()
-        for stream, app in stm2app_dict.items():
-            f1.write(stream + ":    " + app + "\n")
+        for stream, apps in stm2app_dict.items():
+            if len(apps) > 1:
+                continue
+            f1.write(stream + "    ")
+            for app in apps:
+                f1.write(app + "  ")
+            f1.write("\n")
+            
 
 if __name__ == '__main__':
     main()

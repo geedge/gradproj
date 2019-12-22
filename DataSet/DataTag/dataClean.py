@@ -99,6 +99,7 @@ def main():
                         stream = li[3]
                         host = li[4]
                         if(stream.split(' ')[4] != '443'):
+                            traceback.print_exc()
                             continue
                         ua = ""
                         for index in range(5, len(li), 1):

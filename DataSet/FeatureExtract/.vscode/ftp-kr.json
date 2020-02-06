@@ -1,8 +1,8 @@
 {
-    "host": "192.168.40.133",
-    "username": "root",
-    "password": "111111",
-    "remotePath": "/root/cuiyiming/FeatureExtract",
+    "host": "123.57.35.217",
+    "username": "cuiyiming",
+    "password": "070708",
+    "remotePath": "/data/cuiyiming/GradProj/FeatureExtract",
     "protocol": "sftp",
     "port": 22,
     "fileNameEncoding": "utf8",

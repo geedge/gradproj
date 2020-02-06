@@ -3,6 +3,36 @@
 include(ExternalProject)
 
 
+
+include(ExternalProject)
+
+### OpenSSL 1.1.1
+ExternalProject_Add(OpenSSL PREFIX openssl
+        URL ${CMAKE_CURRENT_SOURCE_DIR}/openssl-1.1.1.tar.gz
+        URL_MD5 d65944e4aa4de6ad9858e02c82d85183
+        CONFIGURE_COMMAND ./Configure enable-ssl3 enable-ssl3-method enable-weak-ssl-ciphers linux-x86_64 --prefix=<INSTALL_DIR> --openssldir=<INSTALL_DIR>/lib/ssl
+							enable-ec_nistp_64_gcc_128 no-shared
+		BUILD_COMMAND ${MAKE_COMMAND}
+		INSTALL_COMMAND make install_sw
+        BUILD_IN_SOURCE 1)
+
+ExternalProject_Get_Property(OpenSSL INSTALL_DIR)
+set(OPENSSL_INCLUDE_DIRECTORIES ${INSTALL_DIR}/include)
+set(OPENSSL_LINK_DIRECTORIES ${INSTALL_DIR}/lib)
+set(OPENSSL_PKGCONFIG_PATH ${INSTALL_DIR}/lib/pkgconfig/)
+file(MAKE_DIRECTORY ${INSTALL_DIR}/include)
+
+add_library(openssl-crypto-static STATIC IMPORTED GLOBAL)
+add_dependencies(openssl-crypto-static OpenSSL)
+set_property(TARGET openssl-crypto-static PROPERTY IMPORTED_LOCATION ${INSTALL_DIR}/lib/libcrypto.a)
+set_property(TARGET openssl-crypto-static PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${INSTALL_DIR}/include)
+
+add_library(openssl-ssl-static STATIC IMPORTED GLOBAL)
+add_dependencies(openssl-ssl-static OpenSSL)
+set_property(TARGET openssl-ssl-static PROPERTY IMPORTED_LOCATION ${INSTALL_DIR}/lib/libssl.a)
+set_property(TARGET openssl-ssl-static PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${INSTALL_DIR}/include)
+
+
 ### cJSON: 注意: -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 ExternalProject_Add(cJSON PREFIX cJSON
         URL ${CMAKE_CURRENT_SOURCE_DIR}/cJSON-1.7.7.tar.gz
